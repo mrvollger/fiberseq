@@ -8,7 +8,9 @@ SMKDIR = os.path.dirname(workflow.snakefile)
 SMRTBIN = "/net/eichler/vol26/projects/sequencing/pacbio/smrt-link/smrtcmds/bin"
 shell.prefix(f"source {SMKDIR}/env/env.cfg; set -eo pipefail; ")
 
+#
 # define a tempdir 
+#
 if "TMPDIR" in os.environ:
     TMPDIR = os.environ['TMPDIR']
 elif "TMPDIR" in config:
@@ -16,34 +18,50 @@ elif "TMPDIR" in config:
 else:
     TMPDIR = tempfile.gettempdir()
 
-
-
+#
+# inputs
+#
+DATADIR="/net/eichler/vol27/projects/fiber_seq/nobackups/data"
 #subread = "data/subreads/CD4_stim_DS75687.subreads.bam"
-subreads = "data/test_data/subreads.bam"
+subreads = f"{DATADIR}/test_data/subreads.bam"
 #ccs = "data/ccs/CD4_stim_DS75687.ccs.bam"
-ccs = "data/test_data/ccs.bam"
+ccs = f"{DATADIR}/test_data/ccs.bam"
 #zmws = "data/ccs/CD4_stim_DS75687.ccs.bam.zmws"
-zmws = "data/test_data/test.zmws"
-# final out file
-out = "temp/test.subreads_to_ccs.bam"
-# number of batches to split the process into
-N_BATCHES = 1000
+zmws = f"{DATADIR}/test_data/test.zmws"
+
+
+#
+# outputs
+#
+workdir: "methyl_calls" # all results are relative to workdir
+
+
+
+#
+# run parameters
+#
+N_BATCHES = 500
 BATCHES = [ "{:06}".format(x) for x in range(N_BATCHES) ]
-THREADS=4 # threads per batch per job
+THREADS = 4 # threads per batch per job
+DEBUG=False
 
 wildcard_constraints:
 	B = "\d+",
 
-DEBUG=True
 def tempd(f):
 	if(DEBUG): return(f)
 	return(temp(f))
 
 
+
+#
+# final outputs
+#
 rule all:
 	input:
 		out = expand("temp/mods/{B}.gff", B=BATCHES),
 		pkl = "results/calls.csv.pkl",
+		bam = "results/subreads_to_ccs.bam",
 
 #
 # create ~equal size batches of subreads
@@ -124,7 +142,7 @@ rule align:
 		pbi = rules.subreads.output.pbi,
 		fastq = rules.subreads.output.fastq,
 	output:
-		bam = "temp/align/subreads_to_ccs.{B}.bam"
+		bam = temp("temp/align/subreads_to_ccs.{B}.bam"),
 	resources:
 		mem = 8,
 	threads: 1
@@ -141,8 +159,8 @@ rule index_align:
 	input:
 		bam = rules.align.output.bam,
 	output:
-		bai = rules.align.output.bam + ".bai",
-		pbi = rules.align.output.bam + ".pbi",
+		bai = temp(rules.align.output.bam + ".bai"),
+		pbi = temp(rules.align.output.bam + ".pbi"),
 	threads: 1
 	resources:
 		mem = 2,
@@ -162,7 +180,7 @@ rule call_m6A:
 		bai = rules.index_align.output.bai,
 		pbi = rules.index_align.output.pbi,
 	output:
-		csv = tempd("temp/mods/{B}.csv"),
+		csv = temp("temp/mods/{B}.csv"),
 		gff = "temp/mods/{B}.gff",
 	resources:
 		mem = 4,
@@ -200,7 +218,7 @@ rule csv_pkl:
 	input:
 		csv = rules.call_m6A.output.csv, 
 	output:
-		pkl = tempd("temp/mods/{B}.csv.pkl"),
+		pkl = temp("temp/mods/{B}.csv.pkl"),
 	resources:
 		mem = 4, 
 	threads: 1
@@ -214,7 +232,7 @@ rule csv_pkl:
 
 
 #
-# merge calls
+# merge results
 #
 rule pkl_merge:
 	input:
@@ -238,21 +256,22 @@ rule pkl_merge:
 		df.to_pickle(output["pkl"])
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+rule bam_merge:
+	input:
+		bams = expand(rules.align.output.bam, B=BATCHES)
+	output:
+		bam = "results/subreads_to_ccs.bam",
+		fofn = temp("temp/subreads_to_ccs.fofn"),
+	resources:
+		mem = 1,
+	threads: 4
+	run:
+		fofn = open(output["fofn"], "w+")
+		for bam in input["bams"]: fofn.write( os.path.abspath(str(bam)) + "\n" )
+		fofn.close()
+		shell("head {output.fofn}")
+		shell("samtools merge -@ {threads} -b {output.fofn} {output.bam}")
+	
 
 
 
