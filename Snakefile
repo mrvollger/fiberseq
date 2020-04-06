@@ -2,6 +2,7 @@ import os
 import sys
 import pysam 
 import tempfile 
+import numpy as np
 
 SMKDIR = os.path.dirname(workflow.snakefile) 
 SMRTBIN = "/net/eichler/vol26/projects/sequencing/pacbio/smrt-link/smrtcmds/bin"
@@ -26,14 +27,14 @@ zmws = "data/test_data/test.zmws"
 # final out file
 out = "temp/test.subreads_to_ccs.bam"
 # number of batches to split the process into
-N_BATCHES = 200
-BATCHES = list(range(N_BATCHES))
+N_BATCHES = 1000
+BATCHES = [ "{:06}".format(x) for x in range(N_BATCHES) ]
 THREADS=4 # threads per batch per job
 
 wildcard_constraints:
 	B = "\d+",
 
-DEBUG=False
+DEBUG=True
 def tempd(f):
 	if(DEBUG): return(f)
 	return(temp(f))
@@ -42,6 +43,7 @@ def tempd(f):
 rule all:
 	input:
 		out = expand("temp/mods/{B}.gff", B=BATCHES),
+		pkl = "results/calls.csv.pkl",
 
 #
 # create ~equal size batches of subreads
@@ -51,7 +53,7 @@ rule make_batches:
 	input:
 		zmw = zmws,
 	output:
-		zmws = tempd( expand(zmw_batch_fmt, B=BATCHES) ),
+		zmws = temp( expand(zmw_batch_fmt, B=BATCHES) ),
 	resources:
 		mem = 8, 
 	threads: 1 
@@ -81,12 +83,12 @@ rule ref_ccs:
 		bam = ccs,
 		pbi = ccs + ".pbi",
 	output:
-		ref = tempd("temp/refs/{B}.fasta"),
-		fai = tempd("temp/refs/{B}.fasta.fai"),
+		ref = temp("temp/refs/{B}.fasta"),
+		fai = temp("temp/refs/{B}.fasta.fai"),
 		bam = temp("temp/refs/{B}.bam"),
 		pbi = temp("temp/refs/{B}.bam.pbi"),
 	resources:
-		mem = 8, 
+		mem = 4, 
 	threads: 1 
 	shell:"""
 {SMRTBIN}/bamsieve --whitelist {input.zmw} {input.bam} {output.bam}
@@ -104,7 +106,7 @@ rule subreads:
 		pbi = temp("temp/subreads/{B}.bam.pbi"),
 		fastq = temp("temp/subreads/{B}.fastq"),
 	resources:
-		mem = 8, 
+		mem = 4, 
 	threads: 1 
 	shell:"""
 {SMRTBIN}/bamsieve --whitelist {input.zmw} {input.bam} {output.bam}
@@ -124,7 +126,7 @@ rule align:
 	output:
 		bam = "temp/align/subreads_to_ccs.{B}.bam"
 	resources:
-		mem=8
+		mem = 8,
 	threads: 1
 	shell:"""
 {SMKDIR}/software/minimap2/minimap2 \
@@ -143,7 +145,7 @@ rule index_align:
 		pbi = rules.align.output.bam + ".pbi",
 	threads: 1
 	resources:
-		mem=8
+		mem = 2,
 	shell:"""
 samtools index {input.bam}
 pbindex {input.bam}
@@ -160,10 +162,10 @@ rule call_m6A:
 		bai = rules.index_align.output.bai,
 		pbi = rules.index_align.output.pbi,
 	output:
-		csv = "temp/mods/{B}.cvs",
+		csv = tempd("temp/mods/{B}.csv"),
 		gff = "temp/mods/{B}.gff",
 	resources:
-		mem=8
+		mem = 4,
 	threads: THREADS
 	shell:"""
 {SMRTBIN}/ipdSummary {input.bam} \
@@ -172,5 +174,87 @@ rule call_m6A:
 	--methylMinCov 5 \
 	--gff {output.gff} --csv {output.csv}
 """			
+
+
+
+
+
+CSVTYPES = {
+	"refName" : "category",
+	"tpl" : np.uint32,
+	"strand" : np.uint8,
+	"base" : "category",
+	"score" : np.uint16,
+	"tMean" : np.float32,
+	"tErr" : np.float32,
+	"modelPrediction": np.float32,
+	"ipdRatio": np.float32,
+	"coverage": np.uint16, 
+	"frac": np.float32,
+	"fracLow": np.float32,
+	"fracUp": np.float32
+}
+			
+
+rule csv_pkl:
+	input:
+		csv = rules.call_m6A.output.csv, 
+	output:
+		pkl = tempd("temp/mods/{B}.csv.pkl"),
+	resources:
+		mem = 4, 
+	threads: 1
+	run:
+		import pandas as pd
+		tdf = pd.read_csv(input["csv"], engine="c", dtype=CSVTYPES)  
+		tdf = tdf.loc[ ~ tdf.frac.isna()]
+		tdf.to_pickle(output["pkl"])
+	
+
+
+
+#
+# merge calls
+#
+rule pkl_merge:
+	input:
+		pkls = expand(rules.csv_pkl.output.pkl, B=BATCHES),
+	output:
+		pkl = "results/calls.csv.pkl",
+	resources:
+		mem = 32,
+	threads: 1
+	run:
+		import pandas as pd
+		dfs = []
+		for f in input["pkls"]:
+			dfs.append(  pd.read_pickle(f)  )
+			sys.stderr.write(f"\r{f}")
+		sys.stderr.write("\n")
+		df = pd.concat(dfs, ignore_index=False)
+		df.refName = df.refName.astype("category")
+		df.astype(CSVTYPES, copy=False)
+		print(df.dtypes)
+		df.to_pickle(output["pkl"])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
