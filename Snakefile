@@ -39,6 +39,9 @@ sys.stderr.write( "{}\n{}\n{}\n{}\n".format(subreads, ccs, zmw, config["outdir"]
 #
 N_BATCHES = 1000 # values much over 1000 make for a slow dag
 BATCHES = [ "{:06}".format(x) for x in range(N_BATCHES) ]
+IDX_GB=os.path.getsize(subreads+".pbi")/(1024**3)
+MEM_GB = round(15*IDX_GB) + 4   # try to estiamte ram needed by bamseive, may need to be increased.
+sys.stderr.write("Number of GB per job: {}\n".format(MEM_GB))
 THREADS = 4 
 DEBUG=False
 
@@ -121,7 +124,7 @@ rule subreads:
 		pbi = temp("temp/subreads/{B}.bam.pbi"),
 		fastq = temp("temp/subreads/{B}.fastq"),
 	resources:
-		mem = 4, 
+		mem = MEM_GB, 
 	threads: 1 
 	shell:"""
 {SMRTBIN}/bamsieve --whitelist {input.zmw} {input.bam} {output.bam}
