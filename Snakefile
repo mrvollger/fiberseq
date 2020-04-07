@@ -73,7 +73,7 @@ rule make_batches:
 		mem = 8, 
 	threads: 1 
 	run:
-		ZMWS = { int(x.strip()) for x in open(zmws)}
+		ZMWS = { int(x.strip()) for x in open(input["zmw"])}
 		LEN = len(ZMWS)
 		counter = 0
 		opos = 0
