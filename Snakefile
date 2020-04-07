@@ -21,28 +21,25 @@ else:
 #
 # inputs
 #
-DATADIR="/net/eichler/vol27/projects/fiber_seq/nobackups/data"
-#subread = "data/subreads/CD4_stim_DS75687.subreads.bam"
-subreads = f"{DATADIR}/test_data/subreads.bam"
-#ccs = "data/ccs/CD4_stim_DS75687.ccs.bam"
-ccs = f"{DATADIR}/test_data/ccs.bam"
-#zmws = "data/ccs/CD4_stim_DS75687.ccs.bam.zmws"
-zmws = f"{DATADIR}/test_data/test.zmws"
+configfile: "call_methyl.yaml"
+subreads = os.path.abspath( config["subreads"] )
+ccs = os.path.abspath( config["ccs"] )
+zmw = os.path.abspath( config["zmw"] )
 
 
 #
 # outputs
 #
-workdir: "methyl_calls" # all results are relative to workdir
+workdir: config["outdir"] # all results are relative to workdir
 
-
+sys.stderr.write( "{}\n{}\n{}\n{}\n".format(subreads, ccs, zmw, config["outdir"]))
 
 #
 # run parameters
 #
-N_BATCHES = 500
+N_BATCHES = 1000 # values much over 1000 make for a slow dag
 BATCHES = [ "{:06}".format(x) for x in range(N_BATCHES) ]
-THREADS = 4 # threads per batch per job
+THREADS = 4 
 DEBUG=False
 
 wildcard_constraints:
@@ -59,7 +56,7 @@ def tempd(f):
 #
 rule all:
 	input:
-		out = expand("temp/mods/{B}.gff", B=BATCHES),
+		gff = expand("results/gff/{B}.gff.gz", B=BATCHES),
 		pkl = "results/calls.csv.pkl",
 		bam = "results/subreads_to_ccs.bam",
 
@@ -69,7 +66,7 @@ rule all:
 zmw_batch_fmt = "temp/zmw_batch/{B}.txt"
 rule make_batches:
 	input:
-		zmw = zmws,
+		zmw = zmw,
 	output:
 		zmws = temp( expand(zmw_batch_fmt, B=BATCHES) ),
 	resources:
@@ -181,7 +178,7 @@ rule call_m6A:
 		pbi = rules.index_align.output.pbi,
 	output:
 		csv = temp("temp/mods/{B}.csv"),
-		gff = "temp/mods/{B}.gff",
+		gff = temp("temp/mods/{B}.gff"),
 	resources:
 		mem = 4,
 	threads: THREADS
@@ -256,6 +253,19 @@ rule pkl_merge:
 		df.to_pickle(output["pkl"])
 
 
+rule compress_gff:
+	input:
+		gff = rules.call_m6A.output.gff,
+	output:
+		gz = "results/gff/{B}.gff.gz",
+	resources:
+		mem = 4,
+	threads: 1
+	shell: """
+gzip -c {input.gff} > {output.gz}
+"""
+		
+
 rule bam_merge:
 	input:
 		bams = expand(rules.align.output.bam, B=BATCHES)
@@ -272,8 +282,6 @@ rule bam_merge:
 		shell("head {output.fofn}")
 		shell("samtools merge -@ {threads} -b {output.fofn} {output.bam}")
 	
-
-
 
 
 

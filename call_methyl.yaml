@@ -1,0 +1,5 @@
+outdir: "methyl_calls_CD4_stim_DS75687/"
+ccs: "data/ccs/CD4_stim_DS75687.ccs.bam"
+zmw: "data/ccs/CD4_stim_DS75687.ccs.bam.zmws"
+subreads: "data/subreads/CD4_stim_DS75687.subreads.bam"
+
