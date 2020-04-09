@@ -63,6 +63,8 @@ rule all:
 		gff = expand("results/gff/{B}.gff.gz", B=BATCHES),
 		pkl = "results/calls.csv.pkl",
 		bam = "results/subreads_to_ccs.bam",
+		plt1 = "results/accessibility.pdf",
+		plt2 = "results/hifi_reads.pdf",
 
 #
 # create ~equal size batches of subreads
@@ -244,8 +246,9 @@ rule pkl_merge:
 		pkls = expand(rules.csv_pkl.output.pkl, B=BATCHES),
 	output:
 		pkl = protected("results/calls.csv.pkl"),
+		small = protected("results/small.csv.pkl"),
 	resources:
-		mem = 32,
+		mem = 64,
 	threads: 1
 	run:
 		import pandas as pd
@@ -259,6 +262,7 @@ rule pkl_merge:
 		df.astype(CSVTYPES, copy=False)
 		print(df.dtypes)
 		df.to_pickle(output["pkl"])
+		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
 
 
 rule compress_gff:
@@ -291,5 +295,18 @@ rule bam_merge:
 		shell("samtools merge -@ {threads} -b {output.fofn} {output.bam}")
 	
 
+rule plots:
+	input:
+		pkl = rules.pkl_merge.output.small,
+		ccs = ccs,
+	output:
+		plt1 = report("results/accessibility.pdf", caption="Accessibility", category="Summary"),
+		plt2 = report("results/hifi_reads.pdf", caption="Read QC", category="Summary"),
+	resources:
+		mem = 16,
+	threads: 1
+	shell:"""
+{SMKDIR}/scripts/summary_plots.py {input.pkl} {input.ccs}  {output.plt1} {output.plt2}
+"""
 
 
