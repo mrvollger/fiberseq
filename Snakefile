@@ -173,6 +173,8 @@ pbindex {input.bam}
 #
 # call m6A modifications per ZMW batch 
 #
+MAXCOV = 50
+WINDOW = 50000
 rule call_m6A:
 	input:
 		ref = rules.ref_ccs.output.ref,
@@ -184,11 +186,13 @@ rule call_m6A:
 		csv = temp("temp/mods/{B}.csv"),
 		gff = temp("temp/mods/{B}.gff"),
 	resources:
-		mem = 4,
+		mem = 2,
 	threads: THREADS
 	shell:"""
 {SMRTBIN}/ipdSummary {input.bam} \
 	--reference {input.ref} \
+	--maxCoverage {MAXCOV} \
+	--referenceStride {WINDOW} \
 	--identify m6A --methylFraction -j {threads} \
 	--methylMinCov 5 \
 	--gff {output.gff} --csv {output.csv}
@@ -239,7 +243,7 @@ rule pkl_merge:
 	input:
 		pkls = expand(rules.csv_pkl.output.pkl, B=BATCHES),
 	output:
-		pkl = "results/calls.csv.pkl",
+		pkl = protected("results/calls.csv.pkl"),
 	resources:
 		mem = 32,
 	threads: 1
