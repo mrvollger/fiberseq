@@ -28,7 +28,7 @@ df["dist"] = df.tpl.diff(); mask = df.refName != df.refName.shift(1); df.loc[mas
 
 x = df["dist"].dropna()
 fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(16,16))
-keep = x[x.between(-1, x.quantile(.9999))]
+keep = x[x.between(-1, x.quantile(0.99999))]
 sns.distplot( keep, kde=False, bins=range(int(keep.max()) +1), hist_kws={'log':True}, ax=ax1)
 ax1.set_xlabel("Distance between m6A (accessible) sites")
 

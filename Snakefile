@@ -300,8 +300,8 @@ rule plots:
 		pkl = rules.pkl_merge.output.small,
 		ccs = ccs,
 	output:
-		plt1 = report("results/accessibility.pdf", caption="Accessibility", category="Summary"),
-		plt2 = report("results/hifi_reads.pdf", caption="Read QC", category="Summary"),
+		plt1 = report("results/accessibility.pdf", category="Summary"),
+		plt2 = report("results/hifi_reads.pdf", category="Summary"),
 	resources:
 		mem = 16,
 	threads: 1
