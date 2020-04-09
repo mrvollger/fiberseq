@@ -246,7 +246,6 @@ rule pkl_merge:
 		pkls = expand(rules.csv_pkl.output.pkl, B=BATCHES),
 	output:
 		pkl = protected("results/calls.csv.pkl"),
-		small = protected("results/small.csv.pkl"),
 	resources:
 		mem = 64,
 	threads: 1
@@ -262,6 +261,19 @@ rule pkl_merge:
 		df.astype(CSVTYPES, copy=False)
 		print(df.dtypes)
 		df.to_pickle(output["pkl"])
+		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
+
+rule pkl_small:
+	input:
+		pkl = rules.pkl_merge.output.pkl,
+	output:
+		small = protected("results/small.csv.pkl"),
+	resources:
+		mem = 48,
+	threads: 1
+	run:
+		import pandas as pd
+		df = pd.read_pickle(input["pkl"])
 		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
 
 
@@ -297,13 +309,13 @@ rule bam_merge:
 
 rule plots:
 	input:
-		pkl = rules.pkl_merge.output.small,
+		pkl = rules.pkl_small.output.small,
 		ccs = ccs,
 	output:
 		plt1 = report("results/accessibility.pdf", category="Summary"),
 		plt2 = report("results/hifi_reads.pdf", category="Summary"),
 	resources:
-		mem = 16,
+		mem = 24,
 	threads: 1
 	shell:"""
 {SMKDIR}/scripts/summary_plots.py {input.pkl} {input.ccs}  {output.plt1} {output.plt2}
