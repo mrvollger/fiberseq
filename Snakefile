@@ -43,6 +43,7 @@ IDX_GB=os.path.getsize(subreads+".pbi")/(1024**3)
 MEM_GB = round(15*IDX_GB) + 4   # try to estiamte ram needed by bamseive, may need to be increased.
 THREADS = 4
 if("threads" in config): THREADS = config["threads"]
+MINNP = 5 # minimum number of passes to annotate a read
 sys.stderr.write("Number of GB per job: {}\nMax threads per job: {}\n".format(MEM_GB, THREADS))
 DEBUG=False
 
@@ -60,9 +61,11 @@ def tempd(f):
 #
 rule all:
 	input:
-		gff = expand("results/gff/{B}.gff.gz", B=BATCHES),
+		gff = expand("results/gff/{B}.gff.bgz", B=BATCHES),
+		tib = expand("results/gff/{B}.gff.bgz.tbi", B=BATCHES),
 		pkl = "results/calls.csv.pkl",
 		bam = "results/subreads_to_ccs.bam",
+		mods = "results/ccs_with_mods.bam",
 		plt1 = "results/accessibility.pdf",
 		plt2 = "results/hifi_reads.pdf",
 
@@ -96,7 +99,7 @@ rule make_batches:
 # split ccs and subreads by zmw batches
 #
 def get_zmw(wc):
-	return(zmw_batch_fmt.format(B=str(wc.B)))
+	return(ancient(zmw_batch_fmt.format(B=str(wc.B))))
 		
 rule ref_ccs:
 	input:
@@ -106,8 +109,8 @@ rule ref_ccs:
 	output:
 		ref = temp("temp/refs/{B}.fasta"),
 		fai = temp("temp/refs/{B}.fasta.fai"),
-		bam = temp("temp/refs/{B}.bam"),
-		pbi = temp("temp/refs/{B}.bam.pbi"),
+		bam = "temp/refs/{B}.bam",
+		pbi = "temp/refs/{B}.bam.pbi",
 	resources:
 		mem = 4, 
 	threads: 1 
@@ -116,6 +119,20 @@ rule ref_ccs:
 samtools fasta {output.bam} > {output.ref}
 samtools faidx {output.ref}
 """
+
+# rule for regenerating ccs bams if I need the later
+rule ccs_bams:
+	input:
+		bam = expand(rules.ref_ccs.output.bam, B=BATCHES),
+	output:
+		txt = "temp/refs/re_made_subreads.txt",
+	resources:
+		mem = 4, 
+	threads: 1 
+	shell:"""
+touch {output.txt}
+"""
+
 
 rule subreads:
 	input:
@@ -236,10 +253,55 @@ rule csv_pkl:
 		tdf.to_pickle(output["pkl"])
 	
 
+#
+# merge gff and ccs subread bams 
+#
+rule tabix_gff:
+	input:
+		gff = rules.call_m6A.output.gff,
+	output:
+		bgz = "results/gff/{B}.gff.bgz",
+		tbi = "results/gff/{B}.gff.bgz.tbi",
+	resources:
+		mem = 4,
+	threads: 1
+	shell: """
+zcat {input.gff} | bgzip > {output.bgz}
+tabix -p gff {output.bgz}
+"""
+
+
+rule add_mods_to_bam:
+	input:
+		gff = rules.tabix_gff.output.bgz,
+		tbi = rules.tabix_gff.output.tbi,
+		bam = rules.ref_ccs.output.bam,
+	output:
+		bam = "temp/mods/{B}.bam"
+	resources:
+		mem = 4,
+	threads: 1
+	shell:"""
+{SMKDIR}/scripts/add_mods_to_ccs.py {input.bam} {input.gff} {output.bam} --np {MINNP}
+"""	
+
+rule mod_bam:
+	input:
+		bam = expand(rules.add_mods_to_bam.output.bam, B=BATCHES),
+	output:
+		bam = "results/ccs_with_mods.bam",
+		pbi = "results/ccs_with_mods.bam.pbi"
+	resources:
+		mem = 4,
+	threads: 4
+	shell:"""
+samtools merge -@ {threads} {output.bam} {input.bam}
+pbindex {output.bam}
+"""	
 
 
 #
-# merge results
+# merge pkl results, will be removed 
 #
 rule pkl_merge:
 	input:
@@ -275,21 +337,25 @@ rule pkl_small:
 		import pandas as pd
 		df = pd.read_pickle(input["pkl"])
 		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
-
-
-rule compress_gff:
+	
+rule plots:
 	input:
-		gff = rules.call_m6A.output.gff,
+		pkl = rules.pkl_small.output.small,
+		ccs = ccs,
 	output:
-		gz = "results/gff/{B}.gff.gz",
+		plt1 = report("results/accessibility.pdf", category="Summary"),
+		plt2 = report("results/hifi_reads.pdf", category="Summary"),
 	resources:
-		mem = 4,
+		mem = 36,
 	threads: 1
-	shell: """
-gzip -c {input.gff} > {output.gz}
+	shell:"""
+{SMKDIR}/scripts/summary_plots.py {input.pkl} {input.ccs}  {output.plt1} {output.plt2}
 """
-		
 
+
+#
+# rule to merge subread bams, probably not worth.
+#
 rule bam_merge:
 	input:
 		bams = expand(rules.align.output.bam, B=BATCHES)
@@ -305,20 +371,6 @@ rule bam_merge:
 		fofn.close()
 		shell("head {output.fofn}")
 		shell("samtools merge -@ {threads} -b {output.fofn} {output.bam}")
+
+
 	
-
-rule plots:
-	input:
-		pkl = rules.pkl_small.output.small,
-		ccs = ccs,
-	output:
-		plt1 = report("results/accessibility.pdf", category="Summary"),
-		plt2 = report("results/hifi_reads.pdf", category="Summary"),
-	resources:
-		mem = 24,
-	threads: 1
-	shell:"""
-{SMKDIR}/scripts/summary_plots.py {input.pkl} {input.ccs}  {output.plt1} {output.plt2}
-"""
-
-
