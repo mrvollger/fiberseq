@@ -109,8 +109,8 @@ rule ref_ccs:
 	output:
 		ref = temp("temp/refs/{B}.fasta"),
 		fai = temp("temp/refs/{B}.fasta.fai"),
-		bam = "temp/refs/{B}.bam",
-		pbi = "temp/refs/{B}.bam.pbi",
+		bam = temp("temp/refs/{B}.bam"),
+		pbi = temp("temp/refs/{B}.bam.pbi"),
 	resources:
 		mem = 4, 
 	threads: 1 
@@ -277,7 +277,7 @@ rule add_mods_to_bam:
 		tbi = rules.tabix_gff.output.tbi,
 		bam = rules.ref_ccs.output.bam,
 	output:
-		bam = "temp/mods/{B}.bam"
+		bam = temp("temp/mods/{B}.bam"),
 	resources:
 		mem = 4,
 	threads: 1
