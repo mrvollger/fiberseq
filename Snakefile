@@ -69,7 +69,6 @@ rule all:
 		mods = "results/ccs_with_mods.bam",
 		plt1 = "results/accessibility.pdf",
 		plt2 = "results/hifi_reads.pdf",
-		zmws = expand(zmw_batch_fmt, B=BATCHES),
 
 #
 # create ~equal size batches of subreads
