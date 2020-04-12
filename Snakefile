@@ -59,20 +59,21 @@ def tempd(f):
 #
 # final outputs
 #
+zmw_batch_fmt = "temp/zmw_batch/{B}.txt"
 rule all:
 	input:
 		gff = expand("results/gff/{B}.gff.bgz", B=BATCHES),
 		tib = expand("results/gff/{B}.gff.bgz.tbi", B=BATCHES),
 		pkl = "results/calls.csv.pkl",
-		bam = "results/subreads_to_ccs.bam",
+		#bam = "results/subreads_to_ccs.bam",
 		mods = "results/ccs_with_mods.bam",
 		plt1 = "results/accessibility.pdf",
 		plt2 = "results/hifi_reads.pdf",
+		zmws = expand(zmw_batch_fmt, B=BATCHES),
 
 #
 # create ~equal size batches of subreads
 #
-zmw_batch_fmt = "temp/zmw_batch/{B}.txt"
 rule make_batches:
 	input:
 		zmw = zmw,
@@ -266,7 +267,7 @@ rule tabix_gff:
 		mem = 4,
 	threads: 1
 	shell: """
-zcat {input.gff} | bgzip > {output.bgz}
+cat {input.gff} | bgzip > {output.bgz}
 tabix -p gff {output.bgz}
 """
 
@@ -308,6 +309,7 @@ rule pkl_merge:
 		pkls = expand(rules.csv_pkl.output.pkl, B=BATCHES),
 	output:
 		pkl = protected("results/calls.csv.pkl"),
+		small = protected("results/small.csv.pkl"),
 	resources:
 		mem = 64,
 	threads: 1
@@ -325,22 +327,9 @@ rule pkl_merge:
 		df.to_pickle(output["pkl"])
 		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
 
-rule pkl_small:
-	input:
-		pkl = rules.pkl_merge.output.pkl,
-	output:
-		small = protected("results/small.csv.pkl"),
-	resources:
-		mem = 48,
-	threads: 1
-	run:
-		import pandas as pd
-		df = pd.read_pickle(input["pkl"])
-		df[["refName", "tpl", "strand", "base", "coverage", "frac", "fracLow", "fracUp"]].to_pickle(output["small"])
-	
 rule plots:
 	input:
-		pkl = rules.pkl_small.output.small,
+		pkl = rules.pkl_merge.output.small,
 		ccs = ccs,
 	output:
 		plt1 = report("results/accessibility.pdf", category="Summary"),
