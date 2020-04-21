@@ -43,7 +43,7 @@ IDX_GB=os.path.getsize(subreads+".pbi")/(1024**3)
 MEM_GB = round(15*IDX_GB) + 4   # try to estiamte ram needed by bamseive, may need to be increased.
 THREADS = 4
 if("threads" in config): THREADS = config["threads"]
-MINNP = 5 # minimum number of passes to annotate a read
+MINNP = 10 # minimum number of passes to annotate a read
 sys.stderr.write("Number of GB per job: {}\nMax threads per job: {}\n".format(MEM_GB, THREADS))
 DEBUG=False
 
@@ -64,11 +64,13 @@ rule all:
 	input:
 		gff = expand("results/gff/{B}.gff.bgz", B=BATCHES),
 		tib = expand("results/gff/{B}.gff.bgz.tbi", B=BATCHES),
-		pkl = "results/calls.csv.pkl",
-		#bam = "results/subreads_to_ccs.bam",
+		tbl = "results/calls.pkl",
 		mods = "results/ccs_with_mods.bam",
-		plt1 = "results/accessibility.pdf",
-		plt2 = "results/hifi_reads.pdf",
+		# TODO modify summayr plots to use tbl instead of pkl
+		#pkl = "results/calls.csv.pkl",
+		#bam = "results/subreads_to_ccs.bam",
+		#plt1 = "results/accessibility.pdf",
+		#plt2 = "results/hifi_reads.pdf",
 
 #
 # create ~equal size batches of subreads
@@ -109,7 +111,7 @@ rule ref_ccs:
 	output:
 		ref = temp("temp/refs/{B}.fasta"),
 		fai = temp("temp/refs/{B}.fasta.fai"),
-		bam = temp("temp/refs/{B}.bam"),
+		bam = "temp/refs/{B}.bam",
 		pbi = temp("temp/refs/{B}.bam.pbi"),
 	resources:
 		mem = 4, 
@@ -125,7 +127,7 @@ rule ccs_bams:
 	input:
 		bam = expand(rules.ref_ccs.output.bam, B=BATCHES),
 	output:
-		txt = "temp/refs/re_made_subreads.txt",
+		txt = temp("temp/refs/re_made_subreads.txt"),
 	resources:
 		mem = 4, 
 	threads: 1 
@@ -149,6 +151,18 @@ rule subreads:
 	shell:"""
 {SMRTBIN}/bamsieve --whitelist {input.zmw} {input.bam} {output.bam}
 samtools fastq {output.bam} > {output.fastq}
+"""
+
+rule make_subreads:
+	input:
+		bams = expand(rules.subreads.output.bam, B=BATCHES),
+	output:
+		txt = "temp/subreads/done.txt",
+	resources:
+		mem = MEM_GB, 
+	threads: 1 
+	shell:"""
+touch {output.txt}	
 """
 
 #
@@ -278,11 +292,12 @@ rule add_mods_to_bam:
 		bam = rules.ref_ccs.output.bam,
 	output:
 		bam = temp("temp/mods/{B}.bam"),
+		pkl = temp("temp/mods/{B}.pkl"),
 	resources:
 		mem = 4,
 	threads: 1
 	shell:"""
-{SMKDIR}/scripts/add_mods_to_ccs.py {input.bam} {input.gff} {output.bam} --np {MINNP}
+{SMKDIR}/scripts/add_mods_to_ccs.py {input.bam} {input.gff} {output.bam} {output.pkl} --np {MINNP}
 """	
 
 rule mod_bam:
@@ -298,6 +313,45 @@ rule mod_bam:
 samtools merge -@ {threads} {output.bam} {input.bam}
 pbindex {output.bam}
 """	
+
+
+rule calls_tbl: 
+	input:
+		tbl = expand(rules.add_mods_to_bam.output.pkl, B=BATCHES),
+	output:
+		tbl = "results/calls.pkl",
+	resources:
+		mem = 32,
+	threads: 1
+	run:
+		import pandas as pd
+		dfs = []
+		for f in input["tbl"]:
+			dfs.append(  pd.read_pickle(f)  )
+			sys.stderr.write(f"\r{f}")
+		sys.stderr.write("\n")
+		df = pd.concat(dfs, ignore_index=False)
+		df.to_pickle(output["tbl"])
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #
