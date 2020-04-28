@@ -292,7 +292,7 @@ rule add_mods_to_bam:
 		bam = rules.ref_ccs.output.bam,
 	output:
 		bam = temp("temp/mods/{B}.bam"),
-		pkl = temp("temp/mods/{B}.pkl"),
+		pkl = ("temp/mods/{B}.pkl"),
 	resources:
 		mem = 4,
 	threads: 1
@@ -330,7 +330,7 @@ rule calls_tbl:
 			dfs.append(  pd.read_pickle(f)  )
 			sys.stderr.write(f"\r{f}")
 		sys.stderr.write("\n")
-		df = pd.concat(dfs, ignore_index=False)
+		df = pd.concat(dfs, ignore_index=True)
 		df.to_pickle(output["tbl"])
 	
 
